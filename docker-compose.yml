@@ -1,0 +1,52 @@
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Sem POSTGRES_DB o entrypoint cria um banco com o nome do usuário, e o
+      # CREATE DATABASE mfacrud do init script falharia. Fixa o banco padrão em `postgres`.
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      # postgres:18 usa PGDATA em /var/lib/postgresql/18/docker; o volume monta o diretório pai.
+      - pgdata:/var/lib/postgresql
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.3
+    command: start-dev --import-realm
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://db:5432/keycloak
+      KC_DB_USERNAME: ${POSTGRES_USER}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD}
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+      # Resolvido pelo placeholder ${MFACRUD_ADMIN_SVC_SECRET} dentro do realm-export.json (M1).
+      MFACRUD_ADMIN_SVC_SECRET: ${MFACRUD_ADMIN_SVC_SECRET}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      # A imagem não tem curl; usa o socket TCP do bash contra a porta de management (9000).
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3 && grep -q ' 200 ' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 60s
+
+volumes:
+  pgdata:
