@@ -1,7 +1,9 @@
 using MfaCrud.Api.Account;
 using MfaCrud.Api.Auth;
 using MfaCrud.Api.Data;
+using MfaCrud.Api.Keycloak;
 using MfaCrud.Api.Products;
+using MfaCrud.Api.Users;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -13,6 +15,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Postgres")));
 
 builder.Services.AddKeycloakAuthentication(builder.Configuration, builder.Environment);
+builder.Services.AddKeycloakAdminApi();
 
 builder.Services.AddCors(options => options.AddPolicy(WebAppCors, policy => policy
     .WithOrigins(allowedOrigins)
@@ -43,6 +46,7 @@ app.UseAuthorization();
 var api = app.MapGroup("/api/v1");
 api.MapAccountEndpoints();
 api.MapProductEndpoints();
+api.MapUserEndpoints();
 
 app.Run();
 

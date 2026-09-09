@@ -67,12 +67,11 @@ public class AuthenticationTests(ApiFixture fixture)
         Assert.True(withoutOtp.IsSuccessStatusCode);
 
         // customer2fa@test.local has one: the password alone gets no token.
-        using var denied = await fixture.Tokens.RequestTokenAsync("customer2fa@test.local", "Customer123!");
+        using var denied = await fixture.Tokens.RequestTokenAsync(ApiFixture.TwoFactorUser, ApiFixture.TwoFactorPassword);
         Assert.False(denied.IsSuccessStatusCode);
 
         // With the TOTP code it does, and the API accepts the token.
-        using var client = await fixture.CreateAuthenticatedClientAsync(
-            "customer2fa@test.local", "Customer123!", TokenClient.CurrentTotp());
+        using var client = await fixture.CreateTwoFactorClientAsync();
         using var response = await client.GetAsync("/api/v1/products");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);

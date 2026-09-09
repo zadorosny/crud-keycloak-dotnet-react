@@ -13,6 +13,13 @@ public sealed class ApiFixture : IAsyncLifetime
     public const string KeycloakImage = "quay.io/keycloak/keycloak:26.7.3";
     public const string PostgresImage = "postgres:18";
     public const string AdminServiceSecret = "test-admin-service-secret";
+    public const string TwoFactorUser = "customer2fa@test.local";
+    public const string TwoFactorPassword = "Customer123!";
+
+    private static readonly TimeSpan TotpWindow = TimeSpan.FromSeconds(30);
+
+    private readonly SemaphoreSlim _totpGate = new(1, 1);
+    private string? _lastUsedTotp;
 
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder(PostgresImage)
         .WithDatabase("mfacrud")
@@ -28,12 +35,14 @@ public sealed class ApiFixture : IAsyncLifetime
 
     public TokenClient Tokens { get; private set; } = null!;
 
-    public string Authority => $"{_keycloak.GetBaseAddress().TrimEnd('/')}/realms/mfacrud";
+    public string BaseUrl => _keycloak.GetBaseAddress().TrimEnd('/');
+
+    public string Authority => $"{BaseUrl}/realms/mfacrud";
 
     public async Task InitializeAsync()
     {
         await Task.WhenAll(_postgres.StartAsync(), _keycloak.StartAsync());
-        Factory = new MfaCrudApiFactory(_postgres.GetConnectionString(), Authority);
+        Factory = new MfaCrudApiFactory(_postgres.GetConnectionString(), BaseUrl, AdminServiceSecret);
         Tokens = new TokenClient(Authority);
     }
 
@@ -44,6 +53,37 @@ public sealed class ApiFixture : IAsyncLifetime
         var client = Factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return client;
+    }
+
+    /// <summary>
+    /// A client for the user that has an authenticator configured. The realm forbids reusing an OTP
+    /// code, so signing in twice inside the same 30s window means waiting for the next one.
+    /// </summary>
+    public async Task<HttpClient> CreateTwoFactorClientAsync(
+        string username = TwoFactorUser, string password = TwoFactorPassword)
+    {
+        await _totpGate.WaitAsync();
+        try
+        {
+            if (TokenClient.CurrentTotp() == _lastUsedTotp)
+            {
+                await WaitForNextTotpWindowAsync();
+            }
+
+            var totp = TokenClient.CurrentTotp();
+            _lastUsedTotp = totp;
+            return await CreateAuthenticatedClientAsync(username, password, totp);
+        }
+        finally
+        {
+            _totpGate.Release();
+        }
+    }
+
+    private static async Task WaitForNextTotpWindowAsync()
+    {
+        var millisecondsIntoWindow = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() % TotpWindow.TotalMilliseconds;
+        await Task.Delay(TotpWindow - TimeSpan.FromMilliseconds(millisecondsIntoWindow) + TimeSpan.FromMilliseconds(500));
     }
 
     public async Task DisposeAsync()
