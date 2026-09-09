@@ -31,6 +31,11 @@ services:
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD}
       KC_HTTP_ENABLED: "true"
       KC_HEALTH_ENABLED: "true"
+      # O browser fala com localhost:8080 e a API, de dentro da rede do compose, com keycloak:8080.
+      # Fixar o hostname mantém o `iss` sempre em localhost (é o que o token carrega); o backchannel
+      # dinâmico deixa o discovery devolver o host de quem perguntou, para a API achar o JWKS.
+      KC_HOSTNAME: http://localhost:8080
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
       # Resolvido pelo placeholder ${MFACRUD_ADMIN_SVC_SECRET} dentro do realm-export.json (M1).
       MFACRUD_ADMIN_SVC_SECRET: ${MFACRUD_ADMIN_SVC_SECRET}
     ports:
@@ -47,6 +52,39 @@ services:
       timeout: 5s
       retries: 15
       start_period: 60s
+
+  api:
+    build:
+      context: .
+      dockerfile: src/MfaCrud.Api/Dockerfile
+    environment:
+      # Development também no container: é o que aplica as migrations no startup, expõe o
+      # /openapi e dispensa HTTPS no metadata (tudo aqui é http em localhost).
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Postgres: Host=db;Port=5432;Database=mfacrud;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      # Metadata e JWKS pelo nome interno; `iss` esperado é o que o browser usa.
+      Keycloak__Authority: http://keycloak:8080/realms/mfacrud
+      Keycloak__Issuer: http://localhost:8080/realms/mfacrud
+      Keycloak__BaseUrl: http://keycloak:8080
+      Keycloak__Audience: mfacrud-api
+      Keycloak__Realm: mfacrud
+      Keycloak__AdminClientId: mfacrud-admin-svc
+      Keycloak__AdminClientSecret: ${MFACRUD_ADMIN_SVC_SECRET}
+      Cors__AllowedOrigins__0: http://localhost:5173
+    ports:
+      - "5080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    healthcheck:
+      # A imagem não tem curl e o /bin/sh é dash (sem /dev/tcp), por isso o bash explícito.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3 && grep -q 'Healthy' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
 
 volumes:
   pgdata:

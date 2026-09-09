@@ -77,7 +77,7 @@ jobs:
           } > .env
 
       - name: docker compose up
-        run: docker compose up -d --wait
+        run: docker compose up -d --wait db keycloak
 
       - name: Discovery responds
         run: |
@@ -143,10 +143,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: "10.0.x"
-
       - name: Generate .env
         run: |
           {
@@ -157,24 +153,11 @@ jobs:
             echo "MFACRUD_ADMIN_SVC_SECRET=$(openssl rand -hex 16)"
           } > .env
 
+      # Sobe a stack inteira, API inclusa: assim a coleção roda contra a imagem publicada pelo
+      # Dockerfile e o token emitido em localhost:8080 precisa passar na API que fala com
+      # keycloak:8080 (o gotcha de issuer do M6).
       - name: docker compose up
-        run: docker compose up -d --wait
-
-      - name: Start the API
-        run: |
-          set -a && . ./.env && set +a
-          export ASPNETCORE_ENVIRONMENT=Development
-          export ASPNETCORE_URLS=http://localhost:5080
-          export ConnectionStrings__Postgres="Host=localhost;Port=5432;Database=mfacrud;Username=$POSTGRES_USER;Password=$POSTGRES_PASSWORD"
-          export Keycloak__AdminClientSecret="$MFACRUD_ADMIN_SVC_SECRET"
-          dotnet run --project src/MfaCrud.Api --configuration Release > api.log 2>&1 &
-          for _ in $(seq 1 60); do
-            if [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:5080/api/v1/products)" = "401" ]; then
-              echo "API respondendo"; exit 0
-            fi
-            sleep 2
-          done
-          echo "API nao subiu"; cat api.log; exit 1
+        run: docker compose up -d --build --wait
 
       # Duas vezes seguidas: a coleção precisa ser reexecutável, e o segundo fator não pode
       # reaproveitar o código TOTP da execução anterior.
@@ -187,7 +170,7 @@ jobs:
       - name: Logs
         if: failure()
         run: |
-          echo "::group::API"; cat api.log || true; echo "::endgroup::"
+          echo "::group::API"; docker compose logs api; echo "::endgroup::"
           echo "::group::Keycloak"; docker compose logs keycloak; echo "::endgroup::"
 
       - name: Tear down
