@@ -1,0 +1,1349 @@
+{
+  "info": {
+    "_postman_id": "8f0f6f2e-1d3c-4a5b-9f21-mfacrud000001",
+    "name": "MfaCrud",
+    "description": "CRUD de produtos e usuarios com 2FA TOTP opcional, com o Keycloak como provedor de identidade.\n\nDuas pastas:\n\n- **Manual (PKCE)**: o fluxo real de browser, com a tela de login e a de codigo do Keycloak.\n  Precisa do app do Postman (abre o browser); nao roda no newman.\n- **Automated**: direct grant, sem browser. E o que o newman roda:\n\n```\nnpx newman run postman/MfaCrud.postman_collection.json \\\n  -e postman/local.postman_environment.json --folder Automated\n```\n\nRequer o compose de pe (`docker compose up -d`) e a API em http://localhost:5080\n(`dotnet run --project src/MfaCrud.Api`).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Manual (PKCE)",
+      "description": "Fluxo real com browser: Authorization Code + PKCE no client publico `mfacrud-postman`.\n\nRoteiro:\n\n1. **Get New Access Token** (aba Authorization desta pasta) -> o browser abre a pagina do\n   Keycloak -> entrar com `customer@test.local` / `Customer123!` -> **Use Token**.\n2. Rodar `Me` e `2FA status` (`enabled: false`).\n3. No browser, abrir a Account Console em {{keycloakUrl}}/realms/{{realm}}/account ->\n   **Signing in** -> **Set up Authenticator application** -> escanear o QR code com o app\n   do celular (2FAS, Google Authenticator) e confirmar o codigo de 6 digitos.\n   Pelo React o mesmo caminho e o botao \"Ativar 2FA\".\n4. **Get New Access Token** de novo: depois da senha o Keycloak agora pede o codigo do app,\n   que muda a cada 30 segundos.\n5. `2FA status` volta `enabled: true` e guarda o `credentialId`; `2FA remove` apaga o\n   autenticador e deixa o usuario limpo para a proxima rodada.",
+      "auth": {
+        "type": "oauth2",
+        "oauth2": [
+          {
+            "key": "grant_type",
+            "value": "authorization_code_with_pkce",
+            "type": "string"
+          },
+          {
+            "key": "authUrl",
+            "value": "{{keycloakUrl}}/realms/{{realm}}/protocol/openid-connect/auth",
+            "type": "string"
+          },
+          {
+            "key": "accessTokenUrl",
+            "value": "{{keycloakUrl}}/realms/{{realm}}/protocol/openid-connect/token",
+            "type": "string"
+          },
+          {
+            "key": "clientId",
+            "value": "{{clientId}}",
+            "type": "string"
+          },
+          {
+            "key": "scope",
+            "value": "openid",
+            "type": "string"
+          },
+          {
+            "key": "challengeAlgorithm",
+            "value": "S256",
+            "type": "string"
+          },
+          {
+            "key": "redirect_uri",
+            "value": "https://oauth.pstmn.io/v1/callback",
+            "type": "string"
+          },
+          {
+            "key": "useBrowser",
+            "value": true,
+            "type": "boolean"
+          },
+          {
+            "key": "client_authentication",
+            "value": "none",
+            "type": "string"
+          },
+          {
+            "key": "addTokenTo",
+            "value": "header",
+            "type": "string"
+          },
+          {
+            "key": "tokenName",
+            "value": "MfaCrud PKCE",
+            "type": "string"
+          }
+        ]
+      },
+      "item": [
+        {
+          "name": "Me",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const me = pm.response.json();",
+                  "console.log(\"logado como \" + me.username + \" com as roles \" + JSON.stringify(me.roles));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            }
+          }
+        },
+        {
+          "name": "2FA status",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const status = pm.response.json();",
+                  "if (status.devices.length > 0) {",
+                  "    pm.environment.set(\"credentialId\", status.devices[0].id);",
+                  "}",
+                  "console.log(\"2FA habilitado: \" + status.enabled);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/2fa/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "2fa",
+                "status"
+              ]
+            }
+          }
+        },
+        {
+          "name": "2FA remove",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/2fa/{{credentialId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "2fa",
+                "{{credentialId}}"
+              ]
+            },
+            "description": "Remove o autenticador da propria conta. Mesma coisa que o botao do React."
+          }
+        },
+        {
+          "name": "List products",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/products",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "products"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create product (403 para customer)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Teclado\",\n  \"description\": \"60%\",\n  \"price\": 349.9,\n  \"stock\": 7\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/products",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "products"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Automated",
+      "description": "Direct grant, sem browser. Roda no newman e pode ser reexecutada do zero.",
+      "auth": {
+        "type": "noauth"
+      },
+      "item": [
+        {
+          "name": "Discovery",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"issuer e o realm mfacrud\", () => {",
+                  "    pm.expect(pm.response.json().issuer).to.eql(pm.environment.get(\"keycloakUrl\") + \"/realms/\" + pm.environment.get(\"realm\"));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{keycloakUrl}}/realms/{{realm}}/.well-known/openid-configuration",
+              "host": [
+                "{{keycloakUrl}}"
+              ],
+              "path": [
+                "realms",
+                "{{realm}}",
+                ".well-known",
+                "openid-configuration"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Customer",
+          "auth": {
+            "type": "bearer",
+            "bearer": [
+              {
+                "key": "token",
+                "value": "{{accessToken}}",
+                "type": "string"
+              }
+            ]
+          },
+          "item": [
+            {
+              "name": "Token (customer)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"token emitido\", () => pm.response.to.have.status(200));",
+                      "const body = pm.response.json();",
+                      "pm.expect(body.access_token, \"access_token\").to.be.a(\"string\");",
+                      "pm.environment.set(\"accessToken\", body.access_token);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "noauth"
+                },
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "urlencoded",
+                  "urlencoded": [
+                    {
+                      "key": "client_id",
+                      "value": "{{clientId}}",
+                      "type": "text"
+                    },
+                    {
+                      "key": "grant_type",
+                      "value": "password",
+                      "type": "text"
+                    },
+                    {
+                      "key": "username",
+                      "value": "{{customerUser}}",
+                      "type": "text"
+                    },
+                    {
+                      "key": "password",
+                      "value": "{{customerPass}}",
+                      "type": "text"
+                    }
+                  ]
+                },
+                "url": {
+                  "raw": "{{keycloakUrl}}/realms/{{realm}}/protocol/openid-connect/token",
+                  "host": [
+                    "{{keycloakUrl}}"
+                  ],
+                  "path": [
+                    "realms",
+                    "{{realm}}",
+                    "protocol",
+                    "openid-connect",
+                    "token"
+                  ]
+                },
+                "description": ""
+              }
+            },
+            {
+              "name": "Me",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                      "const me = pm.response.json();",
+                      "pm.test(\"roles contem customer\", () => pm.expect(me.roles).to.include(\"customer\"));",
+                      "pm.test(\"identidade vem do token\", () => {",
+                      "    pm.expect(me.username).to.eql(pm.environment.get(\"customerUser\"));",
+                      "    pm.expect(me.email).to.eql(pm.environment.get(\"customerUser\"));",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/auth/me",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "me"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "2FA status (desativado)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                      "const status = pm.response.json();",
+                      "pm.test(\"sem autenticador\", () => {",
+                      "    pm.expect(status.enabled).to.be.false;",
+                      "    pm.expect(status.devices).to.be.an(\"array\").that.is.empty;",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/auth/2fa/status",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "2fa",
+                    "status"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Create product (403)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"customer nao cria produto\", () => pm.response.to.have.status(403));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Nao deveria entrar\",\n  \"price\": 1,\n  \"stock\": 1\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/products",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "products"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Customer with 2FA",
+          "auth": {
+            "type": "bearer",
+            "bearer": [
+              {
+                "key": "token",
+                "value": "{{accessToken}}",
+                "type": "string"
+              }
+            ]
+          },
+          "item": [
+            {
+              "name": "Token (customer2fa) sem totp",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"nenhum token sem o segundo fator\", () => {",
+                      "    pm.expect(pm.response.code).to.be.oneOf([400, 401]);",
+                      "    pm.expect(pm.response.json()).to.not.have.property(\"access_token\");",
+                      "});",
+                      "pm.test(\"erro e invalid_grant\", () => pm.expect(pm.response.json().error).to.eql(\"invalid_grant\"));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "noauth"
+                },
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "urlencoded",
+                  "urlencoded": [
+                    {
+                      "key": "client_id",
+                      "value": "{{clientId}}",
+                      "type": "text"
+                    },
+                    {
+                      "key": "grant_type",
+                      "value": "password",
+                      "type": "text"
+                    },
+                    {
+                      "key": "username",
+                      "value": "{{customer2faUser}}",
+                      "type": "text"
+                    },
+                    {
+                      "key": "password",
+                      "value": "{{customer2faPass}}",
+                      "type": "text"
+                    }
+                  ]
+                },
+                "url": {
+                  "raw": "{{keycloakUrl}}/realms/{{realm}}/protocol/openid-connect/token",
+                  "host": [
+                    "{{keycloakUrl}}"
+                  ],
+                  "path": [
+                    "realms",
+                    "{{realm}}",
+                    "protocol",
+                    "openid-connect",
+                    "token"
+                  ]
+                },
+                "description": "Sem o segundo fator o Keycloak nao emite token.\n\nA especificacao original falava em 401; o Keycloak 26.7.3 responde 400 com `invalid_grant`.\nO teste aceita os dois codigos e checa o que importa: nenhum access_token."
+              }
+            },
+            {
+              "name": "Token (customer2fa)",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "// Gera o TOTP do mesmo jeito que o Keycloak: a chave HMAC sao os bytes UTF-8 do secret",
+                      "// (o QR code mostra o Base32 desses bytes).",
+                      "//",
+                      "// O realm nao permite reusar um codigo (otpPolicyCodeReusable=false), entao esperamos o",
+                      "// inicio da proxima janela de 30s antes de gerar. Assim duas execucoes seguidas do newman",
+                      "// nunca mandam o mesmo codigo para a mesma credencial.",
+                      "// CryptoJS ja existe como global no sandbox do Postman; o require e so para deixar explicito.",
+                      "const cryptoJs = require(\"crypto-js\");",
+                      "",
+                      "function totp(secret, counter) {",
+                      "    const key = cryptoJs.enc.Utf8.parse(secret);",
+                      "    const high = Math.floor(counter / 0x100000000);",
+                      "    const low = counter >>> 0;",
+                      "    const message = cryptoJs.lib.WordArray.create([high, low], 8);",
+                      "    const words = cryptoJs.HmacSHA1(message, key).words;",
+                      "",
+                      "    const bytes = [];",
+                      "    for (let i = 0; i < 20; i++) {",
+                      "        bytes.push((words[i >>> 2] >>> (24 - (i % 4) * 8)) & 0xff);",
+                      "    }",
+                      "",
+                      "    const offset = bytes[19] & 0x0f;",
+                      "    const binary = ((bytes[offset] & 0x7f) << 24)",
+                      "        | ((bytes[offset + 1] & 0xff) << 16)",
+                      "        | ((bytes[offset + 2] & 0xff) << 8)",
+                      "        | (bytes[offset + 3] & 0xff);",
+                      "",
+                      "    return String(binary % 1000000).padStart(6, \"0\");",
+                      "}",
+                      "",
+                      "const waitMs = 30000 - (Date.now() % 30000) + 500;",
+                      "",
+                      "return new Promise((resolve) => setTimeout(() => {",
+                      "    const code = totp(pm.environment.get(\"totpSecret\"), Math.floor(Date.now() / 1000 / 30));",
+                      "    pm.environment.set(\"totpCode\", code);",
+                      "    console.log(\"janela TOTP \" + Math.floor(Date.now() / 1000 / 30) + \", codigo \" + code);",
+                      "    resolve();",
+                      "}, waitMs));"
+                    ]
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"token emitido\", () => pm.response.to.have.status(200));",
+                      "const body = pm.response.json();",
+                      "pm.expect(body.access_token, \"access_token\").to.be.a(\"string\");",
+                      "pm.environment.set(\"accessToken\", body.access_token);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "noauth"
+                },
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "urlencoded",
+                  "urlencoded": [
+                    {
+                      "key": "client_id",
+                      "value": "{{clientId}}",
+                      "type": "text"
+                    },
+                    {
+                      "key": "grant_type",
+                      "value": "password",
+                      "type": "text"
+                    },
+                    {
+                      "key": "username",
+                      "value": "{{customer2faUser}}",
+                      "type": "text"
+                    },
+                    {
+                      "key": "password",
+                      "value": "{{customer2faPass}}",
+                      "type": "text"
+                    },
+                    {
+                      "key": "totp",
+                      "value": "{{totpCode}}",
+                      "type": "text"
+                    }
+                  ]
+                },
+                "url": {
+                  "raw": "{{keycloakUrl}}/realms/{{realm}}/protocol/openid-connect/token",
+                  "host": [
+                    "{{keycloakUrl}}"
+                  ],
+                  "path": [
+                    "realms",
+                    "{{realm}}",
+                    "protocol",
+                    "openid-connect",
+                    "token"
+                  ]
+                },
+                "description": "O pre-request gera o codigo de 6 digitos a partir do secret do autenticador."
+              }
+            },
+            {
+              "name": "2FA status (ativado)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                      "const status = pm.response.json();",
+                      "pm.test(\"autenticador configurado\", () => {",
+                      "    pm.expect(status.enabled).to.be.true;",
+                      "    pm.expect(status.devices).to.have.lengthOf(1);",
+                      "});",
+                      "pm.environment.set(\"credentialId\", status.devices[0].id);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/auth/2fa/status",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "2fa",
+                    "status"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "List products",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                      "pm.test(\"resposta paginada\", () => {",
+                      "    const page = pm.response.json();",
+                      "    pm.expect(page).to.have.all.keys(\"items\", \"page\", \"pageSize\", \"total\");",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/products",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "products"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Staff",
+          "auth": {
+            "type": "bearer",
+            "bearer": [
+              {
+                "key": "token",
+                "value": "{{accessToken}}",
+                "type": "string"
+              }
+            ]
+          },
+          "item": [
+            {
+              "name": "Token (staff)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"token emitido\", () => pm.response.to.have.status(200));",
+                      "const body = pm.response.json();",
+                      "pm.expect(body.access_token, \"access_token\").to.be.a(\"string\");",
+                      "pm.environment.set(\"accessToken\", body.access_token);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "noauth"
+                },
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "urlencoded",
+                  "urlencoded": [
+                    {
+                      "key": "client_id",
+                      "value": "{{clientId}}",
+                      "type": "text"
+                    },
+                    {
+                      "key": "grant_type",
+                      "value": "password",
+                      "type": "text"
+                    },
+                    {
+                      "key": "username",
+                      "value": "{{staffUser}}",
+                      "type": "text"
+                    },
+                    {
+                      "key": "password",
+                      "value": "{{staffPass}}",
+                      "type": "text"
+                    }
+                  ]
+                },
+                "url": {
+                  "raw": "{{keycloakUrl}}/realms/{{realm}}/protocol/openid-connect/token",
+                  "host": [
+                    "{{keycloakUrl}}"
+                  ],
+                  "path": [
+                    "realms",
+                    "{{realm}}",
+                    "protocol",
+                    "openid-connect",
+                    "token"
+                  ]
+                },
+                "description": ""
+              }
+            },
+            {
+              "name": "Create product",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status 201\", () => pm.response.to.have.status(201));",
+                      "const product = pm.response.json();",
+                      "pm.test(\"Location aponta para o produto\", () => {",
+                      "    pm.expect(pm.response.headers.get(\"Location\")).to.eql(\"/api/v1/products/\" + product.id);",
+                      "});",
+                      "pm.test(\"autor e quem criou\", () => pm.expect(product.createdById).to.be.a(\"string\"));",
+                      "pm.environment.set(\"productId\", product.id);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Teclado mecanico\",\n  \"description\": \"layout 60%\",\n  \"price\": 349.9,\n  \"stock\": 7\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/products",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "products"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Get product",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                      "pm.test(\"e o produto criado\", () => pm.expect(pm.response.json().id).to.eql(pm.environment.get(\"productId\")));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/products/{{productId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "products",
+                    "{{productId}}"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "List products (busca)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                      "pm.test(\"encontra pelo nome\", () => {",
+                      "    const page = pm.response.json();",
+                      "    pm.expect(page.total).to.be.at.least(1);",
+                      "    pm.expect(page.items.map(p => p.id)).to.include(pm.environment.get(\"productId\"));",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/products?page=1&pageSize=20&search=teclado",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "products"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "pageSize",
+                      "value": "20"
+                    },
+                    {
+                      "key": "search",
+                      "value": "teclado"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Update product",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                      "pm.test(\"mudanca aplicada\", () => {",
+                      "    const product = pm.response.json();",
+                      "    pm.expect(product.name).to.eql(\"Teclado mecanico sem fio\");",
+                      "    pm.expect(product.stock).to.eql(5);",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Teclado mecanico sem fio\",\n  \"description\": \"layout 60%\",\n  \"price\": 399.9,\n  \"stock\": 5\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/products/{{productId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "products",
+                    "{{productId}}"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Delete product (403)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"staff nao apaga produto\", () => pm.response.to.have.status(403));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/products/{{productId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "products",
+                    "{{productId}}"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "List users (403)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"staff nao ve usuarios\", () => pm.response.to.have.status(403));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/users",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "users"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin",
+          "auth": {
+            "type": "bearer",
+            "bearer": [
+              {
+                "key": "token",
+                "value": "{{accessToken}}",
+                "type": "string"
+              }
+            ]
+          },
+          "item": [
+            {
+              "name": "Token (admin)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"token emitido\", () => pm.response.to.have.status(200));",
+                      "const body = pm.response.json();",
+                      "pm.expect(body.access_token, \"access_token\").to.be.a(\"string\");",
+                      "pm.environment.set(\"accessToken\", body.access_token);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "noauth"
+                },
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "urlencoded",
+                  "urlencoded": [
+                    {
+                      "key": "client_id",
+                      "value": "{{clientId}}",
+                      "type": "text"
+                    },
+                    {
+                      "key": "grant_type",
+                      "value": "password",
+                      "type": "text"
+                    },
+                    {
+                      "key": "username",
+                      "value": "{{adminUser}}",
+                      "type": "text"
+                    },
+                    {
+                      "key": "password",
+                      "value": "{{adminPass}}",
+                      "type": "text"
+                    }
+                  ]
+                },
+                "url": {
+                  "raw": "{{keycloakUrl}}/realms/{{realm}}/protocol/openid-connect/token",
+                  "host": [
+                    "{{keycloakUrl}}"
+                  ],
+                  "path": [
+                    "realms",
+                    "{{realm}}",
+                    "protocol",
+                    "openid-connect",
+                    "token"
+                  ]
+                },
+                "description": ""
+              }
+            },
+            {
+              "name": "Me",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                      "const me = pm.response.json();",
+                      "pm.test(\"roles contem admin\", () => pm.expect(me.roles).to.include(\"admin\"));",
+                      "pm.environment.set(\"adminUserId\", me.id);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/auth/me",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "me"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "List users",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                      "const page = pm.response.json();",
+                      "const customer = page.items.find(u => u.username === pm.environment.get(\"customerUser\"));",
+                      "pm.test(\"encontra o customer\", () => pm.expect(customer, \"customer na listagem\").to.be.an(\"object\"));",
+                      "pm.test(\"mostra quem tem segundo fator\", () => {",
+                      "    const withOtp = page.items.find(u => u.username === pm.environment.get(\"customer2faUser\"));",
+                      "    pm.expect(withOtp.twoFactorEnabled).to.be.true;",
+                      "    pm.expect(customer.twoFactorEnabled).to.be.false;",
+                      "});",
+                      "pm.environment.set(\"userId\", customer.id);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/users?first=0&max=20",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "users"
+                  ],
+                  "query": [
+                    {
+                      "key": "first",
+                      "value": "0"
+                    },
+                    {
+                      "key": "max",
+                      "value": "20"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Set roles [staff]",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                      "pm.test(\"virou staff\", () => {",
+                      "    const user = pm.response.json();",
+                      "    pm.expect(user.roles).to.include(\"staff\");",
+                      "    pm.expect(user.roles).to.not.include(\"customer\");",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"roles\": [\n    \"staff\"\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/users/{{userId}}/roles",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "users",
+                    "{{userId}}",
+                    "roles"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Set own roles [customer] (400)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"admin nao se rebaixa\", () => pm.response.to.have.status(400));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"roles\": [\n    \"customer\"\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/users/{{adminUserId}}/roles",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "users",
+                    "{{adminUserId}}",
+                    "roles"
+                  ]
+                },
+                "description": "Trava anti-lockout: o admin autenticado nao pode remover a propria role admin."
+              }
+            },
+            {
+              "name": "Set roles [customer] (restaura)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                      "pm.test(\"voltou a ser customer\", () => {",
+                      "    const user = pm.response.json();",
+                      "    pm.expect(user.roles).to.include(\"customer\");",
+                      "    pm.expect(user.roles).to.not.include(\"staff\");",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"roles\": [\n    \"customer\"\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/users/{{userId}}/roles",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "users",
+                    "{{userId}}",
+                    "roles"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Delete product",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status 204\", () => pm.response.to.have.status(204));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/products/{{productId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "products",
+                    "{{productId}}"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Get deleted product (404)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"produto sumiu\", () => pm.response.to.have.status(404));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/products/{{productId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "products",
+                    "{{productId}}"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

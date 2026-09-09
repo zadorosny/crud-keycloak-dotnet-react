@@ -115,3 +115,60 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose down -v
+
+  postman:
+    name: Postman (newman)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Generate .env
+        run: |
+          {
+            echo "POSTGRES_USER=mfacrud"
+            echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)"
+            echo "KC_BOOTSTRAP_ADMIN_USERNAME=admin"
+            echo "KC_BOOTSTRAP_ADMIN_PASSWORD=$(openssl rand -hex 16)"
+            echo "MFACRUD_ADMIN_SVC_SECRET=$(openssl rand -hex 16)"
+          } > .env
+
+      - name: docker compose up
+        run: docker compose up -d --wait
+
+      - name: Start the API
+        run: |
+          set -a && . ./.env && set +a
+          export ASPNETCORE_ENVIRONMENT=Development
+          export ASPNETCORE_URLS=http://localhost:5080
+          export ConnectionStrings__Postgres="Host=localhost;Port=5432;Database=mfacrud;Username=$POSTGRES_USER;Password=$POSTGRES_PASSWORD"
+          export Keycloak__AdminClientSecret="$MFACRUD_ADMIN_SVC_SECRET"
+          dotnet run --project src/MfaCrud.Api --configuration Release > api.log 2>&1 &
+          for _ in $(seq 1 60); do
+            if [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:5080/api/v1/products)" = "401" ]; then
+              echo "API respondendo"; exit 0
+            fi
+            sleep 2
+          done
+          echo "API nao subiu"; cat api.log; exit 1
+
+      # Duas vezes seguidas: a coleção precisa ser reexecutável, e o segundo fator não pode
+      # reaproveitar o código TOTP da execução anterior.
+      - name: newman (run 1)
+        run: npx --yes newman run postman/MfaCrud.postman_collection.json -e postman/local.postman_environment.json --folder Automated
+
+      - name: newman (run 2)
+        run: npx --yes newman run postman/MfaCrud.postman_collection.json -e postman/local.postman_environment.json --folder Automated
+
+      - name: Logs
+        if: failure()
+        run: |
+          echo "::group::API"; cat api.log || true; echo "::endgroup::"
+          echo "::group::Keycloak"; docker compose logs keycloak; echo "::endgroup::"
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
