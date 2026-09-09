@@ -1,5 +1,307 @@
 {
   "realm": "mfacrud",
   "displayName": "MfaCrud",
-  "enabled": true
+  "enabled": true,
+  "sslRequired": "external",
+
+  "registrationAllowed": true,
+  "registrationEmailAsUsername": true,
+  "loginWithEmailAllowed": true,
+  "verifyEmail": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "duplicateEmailsAllowed": false,
+  "editUsernameAllowed": false,
+
+  "bruteForceProtected": true,
+  "bruteForceStrategy": "MULTIPLE",
+  "permanentLockout": false,
+  "maxTemporaryLockouts": 0,
+  "failureFactor": 30,
+  "waitIncrementSeconds": 60,
+  "minimumQuickLoginWaitSeconds": 60,
+  "maxFailureWaitSeconds": 900,
+  "quickLoginCheckMilliSeconds": 1000,
+  "maxDeltaTimeSeconds": 43200,
+
+  "otpPolicyType": "totp",
+  "otpPolicyAlgorithm": "HmacSHA1",
+  "otpPolicyDigits": 6,
+  "otpPolicyPeriod": 30,
+  "otpPolicyLookAheadWindow": 1,
+  "otpPolicyInitialCounter": 0,
+  "otpPolicyCodeReusable": false,
+
+  "accessTokenLifespan": 900,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 28800,
+
+  "defaultRole": {
+    "name": "default-roles-mfacrud",
+    "description": "${role_default-roles}",
+    "composite": true,
+    "clientRole": false
+  },
+
+  "roles": {
+    "realm": [
+      {
+        "name": "admin",
+        "description": "Manage products and users"
+      },
+      {
+        "name": "staff",
+        "description": "Create and update products"
+      },
+      {
+        "name": "customer",
+        "description": "Read products; granted to every new account"
+      },
+      {
+        "name": "offline_access",
+        "description": "${role_offline-access}"
+      },
+      {
+        "name": "uma_authorization",
+        "description": "${role_uma_authorization}"
+      },
+      {
+        "name": "default-roles-mfacrud",
+        "description": "${role_default-roles}",
+        "composite": true,
+        "composites": {
+          "realm": ["offline_access", "uma_authorization", "customer"],
+          "client": {
+            "account": ["manage-account", "view-profile"]
+          }
+        }
+      }
+    ]
+  },
+
+  "requiredActions": [
+    { "alias": "TERMS_AND_CONDITIONS", "name": "Terms and Conditions", "providerId": "TERMS_AND_CONDITIONS", "enabled": false, "defaultAction": false, "priority": 20, "config": {} },
+    { "alias": "UPDATE_PROFILE", "name": "Update Profile", "providerId": "UPDATE_PROFILE", "enabled": true, "defaultAction": false, "priority": 40, "config": {} },
+    { "alias": "VERIFY_EMAIL", "name": "Verify Email", "providerId": "VERIFY_EMAIL", "enabled": true, "defaultAction": false, "priority": 50, "config": {} },
+    { "alias": "CONFIGURE_TOTP", "name": "Configure OTP", "providerId": "CONFIGURE_TOTP", "enabled": true, "defaultAction": false, "priority": 54, "config": {} },
+    { "alias": "UPDATE_PASSWORD", "name": "Update Password", "providerId": "UPDATE_PASSWORD", "enabled": true, "defaultAction": false, "priority": 57, "config": {} },
+    { "alias": "delete_account", "name": "Delete Account", "providerId": "delete_account", "enabled": false, "defaultAction": false, "priority": 60, "config": {} },
+    { "alias": "UPDATE_EMAIL", "name": "Update Email", "providerId": "UPDATE_EMAIL", "enabled": false, "defaultAction": false, "priority": 70, "config": {} },
+    { "alias": "webauthn-register", "name": "Webauthn Register", "providerId": "webauthn-register", "enabled": true, "defaultAction": false, "priority": 80, "config": {} },
+    { "alias": "webauthn-register-passwordless", "name": "Webauthn Register Passwordless", "providerId": "webauthn-register-passwordless", "enabled": true, "defaultAction": false, "priority": 90, "config": {} },
+    { "alias": "VERIFY_PROFILE", "name": "Verify Profile", "providerId": "VERIFY_PROFILE", "enabled": true, "defaultAction": false, "priority": 100, "config": {} },
+    { "alias": "delete_credential", "name": "Delete Credential", "providerId": "delete_credential", "enabled": true, "defaultAction": false, "priority": 110, "config": {} },
+    { "alias": "idp_link", "name": "Linking Identity Provider", "providerId": "idp_link", "enabled": true, "defaultAction": false, "priority": 120, "config": {} },
+    { "alias": "CONFIGURE_RECOVERY_AUTHN_CODES", "name": "Recovery Authentication Codes", "providerId": "CONFIGURE_RECOVERY_AUTHN_CODES", "enabled": true, "defaultAction": false, "priority": 130, "config": {} },
+    { "alias": "update_user_locale", "name": "Update User Locale", "providerId": "update_user_locale", "enabled": true, "defaultAction": false, "priority": 1000, "config": {} }
+  ],
+
+  "clients": [
+    {
+      "clientId": "mfacrud-web",
+      "name": "MfaCrud Web (React)",
+      "description": "Public SPA client. Authorization code + PKCE S256.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": true,
+      "fullScopeAllowed": true,
+      "redirectUris": ["http://localhost:5173/*"],
+      "webOrigins": ["http://localhost:5173"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:5173/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "audience-mfacrud-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "mfacrud-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true",
+            "lightweight.claim": "false"
+          }
+        },
+        {
+          "name": "realm-roles-as-roles-claim",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "mfacrud-api",
+      "name": "MfaCrud API",
+      "description": "Resource server. Exists only to be the token audience; no flow enabled.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "redirectUris": [],
+      "webOrigins": []
+    },
+    {
+      "clientId": "mfacrud-postman",
+      "name": "MfaCrud Postman (dev only)",
+      "description": "Dev client for Postman and newman. Direct access grants enabled on purpose.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": true,
+      "redirectUris": ["https://oauth.pstmn.io/v1/callback", "http://localhost/*"],
+      "webOrigins": [],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "protocolMappers": [
+        {
+          "name": "audience-mfacrud-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "mfacrud-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true",
+            "lightweight.claim": "false"
+          }
+        },
+        {
+          "name": "realm-roles-as-roles-claim",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "mfacrud-admin-svc",
+      "name": "MfaCrud Admin Service Account",
+      "description": "Confidential client used by the API to call the Keycloak Admin REST API.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "${MFACRUD_ADMIN_SVC_SECRET}",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "fullScopeAllowed": true,
+      "redirectUris": [],
+      "webOrigins": []
+    }
+  ],
+
+  "users": [
+    {
+      "username": "admin@test.local",
+      "email": "admin@test.local",
+      "emailVerified": true,
+      "firstName": "Ana",
+      "lastName": "Admin",
+      "enabled": true,
+      "credentials": [
+        { "type": "password", "value": "Admin123!", "temporary": false }
+      ],
+      "realmRoles": ["admin"],
+      "clientRoles": {
+        "account": ["manage-account", "view-profile"]
+      }
+    },
+    {
+      "username": "staff@test.local",
+      "email": "staff@test.local",
+      "emailVerified": true,
+      "firstName": "Sam",
+      "lastName": "Staff",
+      "enabled": true,
+      "credentials": [
+        { "type": "password", "value": "Staff123!", "temporary": false }
+      ],
+      "realmRoles": ["staff"],
+      "clientRoles": {
+        "account": ["manage-account", "view-profile"]
+      }
+    },
+    {
+      "username": "customer@test.local",
+      "email": "customer@test.local",
+      "emailVerified": true,
+      "firstName": "Cris",
+      "lastName": "Customer",
+      "enabled": true,
+      "credentials": [
+        { "type": "password", "value": "Customer123!", "temporary": false }
+      ],
+      "realmRoles": ["customer"],
+      "clientRoles": {
+        "account": ["manage-account", "view-profile"]
+      }
+    },
+    {
+      "username": "customer2fa@test.local",
+      "email": "customer2fa@test.local",
+      "emailVerified": true,
+      "firstName": "Tina",
+      "lastName": "Totp",
+      "enabled": true,
+      "credentials": [
+        { "type": "password", "value": "Customer123!", "temporary": false },
+        {
+          "type": "otp",
+          "userLabel": "test-authenticator",
+          "secretData": "{\"value\":\"PORTFOLIO2FASECRET20\"}",
+          "credentialData": "{\"subType\":\"totp\",\"digits\":6,\"counter\":0,\"period\":30,\"algorithm\":\"HmacSHA1\"}"
+        }
+      ],
+      "realmRoles": ["customer"],
+      "clientRoles": {
+        "account": ["manage-account", "view-profile"]
+      }
+    },
+    {
+      "username": "service-account-mfacrud-admin-svc",
+      "enabled": true,
+      "serviceAccountClientId": "mfacrud-admin-svc",
+      "clientRoles": {
+        "realm-management": ["view-realm", "view-users", "query-users", "manage-users"]
+      }
+    }
+  ]
 }
