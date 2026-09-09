@@ -159,6 +159,24 @@ O exportador OTLP só liga quando existe `OTEL_EXPORTER_OTLP_ENDPOINT` na config
 fora do compose, sem essa variável, a instrumentação continua ativa em memória e nada é enviado — é
 assim que os testes rodam.
 
+### Do clique no browser até o SQL
+
+O front também é instrumentado: cada `fetch` para a API vira um span e leva o header `traceparent`
+junto, então a trace começa no navegador e termina no comando SQL, passando pelo span do servidor e
+pelas chamadas à Admin API do Keycloak. No dashboard isso aparece como uma árvore só, com
+`mfacrud-web` e `mfacrud-api` lado a lado.
+
+Ligar isso exige três coisas que valem registro, porque cada uma quebra silenciosamente:
+
+- o coletor precisa liberar a origem do front (`DASHBOARD__OTLP__CORS__ALLOWEDORIGINS`), senão o
+  browser bloqueia o envio;
+- o exportador do browser tem que falar **protobuf**: o endpoint OTLP/HTTP responde `415` a JSON;
+- a API precisa aceitar o header `traceparent` no preflight, o que o `AllowAnyHeader` do CORS já faz.
+
+Também é opcional: sem `VITE_OTEL_EXPORTER_OTLP_ENDPOINT` (veja `web/.env.example`) o SDK nem é
+inicializado. Ele custa cerca de 25 kB gzipados no bundle, o que é justo em desenvolvimento e uma
+decisão a revisar antes de um deploy público.
+
 ## Decisões
 
 **Keycloak em vez de autenticação própria.** Ganha-se login, cadastro, reset, política de senha,

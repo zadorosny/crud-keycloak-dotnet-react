@@ -59,8 +59,12 @@ services:
     image: mcr.microsoft.com/dotnet/aspire-dashboard:9.0
     environment:
       DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS: "true"
+      # O browser posta OTLP/HTTP direto de :5173, então o coletor precisa liberar essa origem.
+      DASHBOARD__OTLP__CORS__ALLOWEDORIGINS: http://localhost:5173
+      DASHBOARD__OTLP__CORS__ALLOWEDHEADERS: "*"
     ports:
       - "18888:18888"
+      - "18890:18890"
 
   api:
     build:
