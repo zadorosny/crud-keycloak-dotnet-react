@@ -53,11 +53,23 @@ services:
       retries: 15
       start_period: 60s
 
+  # Coletor OTLP + UI de traces, métricas e logs estruturados. É só para desenvolvimento: sobe sem
+  # autenticação e guarda tudo em memória, então reiniciar limpa o histórico.
+  telemetry:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:9.0
+    environment:
+      DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS: "true"
+    ports:
+      - "18888:18888"
+
   api:
     build:
       context: .
       dockerfile: src/MfaCrud.Api/Dockerfile
     environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://telemetry:18889
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      OTEL_SERVICE_NAME: mfacrud-api
       # Development também no container: é o que aplica as migrations no startup, expõe o
       # /openapi e dispensa HTTPS no metadata (tudo aqui é http em localhost).
       ASPNETCORE_ENVIRONMENT: Development
@@ -78,6 +90,8 @@ services:
         condition: service_healthy
       keycloak:
         condition: service_healthy
+      telemetry:
+        condition: service_started
     healthcheck:
       # A imagem não tem curl e o /bin/sh é dash (sem /dev/tcp), por isso o bash explícito.
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3 && grep -q 'Healthy' <&3"]

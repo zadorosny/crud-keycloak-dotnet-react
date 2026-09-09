@@ -3,6 +3,7 @@ using MfaCrud.Api.Auth;
 using MfaCrud.Api.Common;
 using MfaCrud.Api.Data;
 using MfaCrud.Api.Models;
+using MfaCrud.Api.Telemetry;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 
@@ -56,7 +57,7 @@ public static class ProductEndpoints
     }
 
     private static async Task<Created<ProductDto>> CreateProduct(
-        ProductRequest request, ClaimsPrincipal user, AppDbContext db, CancellationToken cancellationToken)
+        ProductRequest request, ClaimsPrincipal user, AppDbContext db, MfaCrudTelemetry telemetry, CancellationToken cancellationToken)
     {
         var now = DateTime.UtcNow;
         var product = new Product
@@ -73,12 +74,13 @@ public static class ProductEndpoints
 
         db.Products.Add(product);
         await db.SaveChangesAsync(cancellationToken);
+        telemetry.ProductWritten("created");
 
         return TypedResults.Created($"/api/v1/products/{product.Id}", ToDto(product));
     }
 
     private static async Task<Results<Ok<ProductDto>, NotFound>> UpdateProduct(
-        Guid id, ProductRequest request, AppDbContext db, CancellationToken cancellationToken)
+        Guid id, ProductRequest request, AppDbContext db, MfaCrudTelemetry telemetry, CancellationToken cancellationToken)
     {
         var product = await db.Products.FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
         if (product is null)
@@ -92,15 +94,22 @@ public static class ProductEndpoints
         product.Stock = request.Stock;
         product.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
+        telemetry.ProductWritten("updated");
 
         return TypedResults.Ok(ToDto(product));
     }
 
     private static async Task<Results<NoContent, NotFound>> DeleteProduct(
-        Guid id, AppDbContext db, CancellationToken cancellationToken)
+        Guid id, AppDbContext db, MfaCrudTelemetry telemetry, CancellationToken cancellationToken)
     {
         var deleted = await db.Products.Where(p => p.Id == id).ExecuteDeleteAsync(cancellationToken);
-        return deleted == 0 ? TypedResults.NotFound() : TypedResults.NoContent();
+        if (deleted == 0)
+        {
+            return TypedResults.NotFound();
+        }
+
+        telemetry.ProductWritten("deleted");
+        return TypedResults.NoContent();
     }
 
     private static ProductDto ToDto(Product p) =>

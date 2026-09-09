@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using MfaCrud.Api.Auth;
 using MfaCrud.Api.Keycloak;
+using MfaCrud.Api.Telemetry;
 using Microsoft.AspNetCore.Http.HttpResults;
 
 namespace MfaCrud.Api.Account;
@@ -41,7 +42,7 @@ public static class AccountEndpoints
     /// token's subject and are of type otp can be deleted here.
     /// </summary>
     private static async Task<Results<NoContent, NotFound>> DeleteTwoFactorDevice(
-        string credentialId, ClaimsPrincipal user, KeycloakAdminClient keycloak, CancellationToken cancellationToken)
+        string credentialId, ClaimsPrincipal user, KeycloakAdminClient keycloak, MfaCrudTelemetry telemetry, CancellationToken cancellationToken)
     {
         var userId = user.GetUserId();
         var credentials = await keycloak.GetCredentialsAsync(userId, cancellationToken);
@@ -52,7 +53,13 @@ public static class AccountEndpoints
         }
 
         var deleted = await keycloak.DeleteCredentialAsync(userId, credentialId, cancellationToken);
-        return deleted ? TypedResults.NoContent() : TypedResults.NotFound();
+        if (!deleted)
+        {
+            return TypedResults.NotFound();
+        }
+
+        telemetry.TwoFactorDeviceRemoved();
+        return TypedResults.NoContent();
     }
 
     private static async Task<List<TwoFactorDevice>> GetOtpDevicesAsync(

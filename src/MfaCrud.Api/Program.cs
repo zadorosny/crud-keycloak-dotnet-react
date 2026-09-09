@@ -4,10 +4,13 @@ using MfaCrud.Api.Common;
 using MfaCrud.Api.Data;
 using MfaCrud.Api.Keycloak;
 using MfaCrud.Api.Products;
+using MfaCrud.Api.Telemetry;
 using MfaCrud.Api.Users;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.AddMfaCrudTelemetry();
 
 const string WebAppCors = "web-app";
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];

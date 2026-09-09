@@ -83,6 +83,7 @@ cd web && npm install && npm run dev
 - Front: <http://localhost:5173>
 - API: <http://localhost:5080> · health em `/health` · OpenAPI em `/openapi/v1.json`
 - Keycloak: <http://localhost:8080> (admin do `.env`)
+- Telemetria: <http://localhost:18888> (traces, métricas e logs)
 
 Para desenvolver a API fora do container (hot reload, debugger), suba só a infra e rode na máquina:
 
@@ -131,6 +132,32 @@ npx newman run postman/MfaCrud.postman_collection.json \
 Precisa da stack de pé. A pasta `Manual (PKCE)` é para rodar no app do Postman: ela abre o browser,
 passa pela tela do Keycloak e tem no descritivo o roteiro de escanear o QR code no celular e entrar
 de novo com o código.
+
+## Telemetria
+
+A API é instrumentada com **OpenTelemetry** e exporta traces, métricas e logs por OTLP. O compose já
+sobe um coletor com interface própria em <http://localhost:18888>: abra, gere tráfego pelo front ou
+pelo Postman e os spans aparecem em *Traces*, os contadores em *Metrics* e os logs estruturados em
+*Structured logs*.
+
+Vem pronto da instrumentação: cada request HTTP como span de servidor (com rota, método e status),
+cada chamada de saída para a Admin API do Keycloak como span cliente, cada comando SQL do Npgsql, e
+métricas de duração de request, de cliente HTTP e de runtime (GC, thread pool). Em cima disso, três
+contadores do domínio:
+
+| Métrica | O que conta |
+|---|---|
+| `mfacrud.products.written` | produtos criados, atualizados e removidos, com a operação como tag |
+| `mfacrud.two_factor.devices_removed` | autenticadores removidos pelo próprio dono |
+| `mfacrud.users.role_changes` | trocas de papel feitas por um admin, com o papel resultante como tag |
+
+Duas decisões de contenção: `/health` fica **fora** dos traces, porque o healthcheck do compose o
+chama a cada 10s e só geraria ruído; e nenhuma tag carrega identificador de pessoa ou de token —
+papéis são de baixa cardinalidade e bastam para entender o uso.
+
+O exportador OTLP só liga quando existe `OTEL_EXPORTER_OTLP_ENDPOINT` na configuração. Rodando a API
+fora do compose, sem essa variável, a instrumentação continua ativa em memória e nada é enviado — é
+assim que os testes rodam.
 
 ## Decisões
 

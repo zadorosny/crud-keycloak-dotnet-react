@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Security.Claims;
 using MfaCrud.Api.Auth;
 using MfaCrud.Api.Keycloak;
+using MfaCrud.Api.Telemetry;
 using Microsoft.AspNetCore.Http.HttpResults;
 
 namespace MfaCrud.Api.Users;
@@ -70,6 +71,7 @@ public static class UserEndpoints
         UpdateUserRolesRequest request,
         ClaimsPrincipal caller,
         KeycloakAdminClient keycloak,
+        MfaCrudTelemetry telemetry,
         CancellationToken cancellationToken)
     {
         var requested = request.Roles.Distinct(StringComparer.Ordinal).ToArray();
@@ -118,6 +120,11 @@ public static class UserEndpoints
             }
 
             await keycloak.AddRealmRolesAsync(id, toAdd, cancellationToken);
+        }
+
+        foreach (var role in requested)
+        {
+            telemetry.RoleChanged(role);
         }
 
         return TypedResults.Ok(await ToDtoAsync(user, keycloak, cancellationToken));
