@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  dotnet:
+    name: Build and test (.NET)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore MfaCrud.sln
+
+      - name: Build
+        run: dotnet build MfaCrud.sln --configuration Release --no-restore -warnaserror
+
+      - name: Test
+        run: >
+          dotnet test MfaCrud.sln --configuration Release --no-build
+          --logger "trx;LogFileName=test-results.trx" --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults/
+          if-no-files-found: ignore
+
+  keycloak:
+    name: Realm imports from scratch
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Os valores são descartáveis: só precisam existir para o compose e para o
+      # placeholder ${MFACRUD_ADMIN_SVC_SECRET} do realm-export.json.
+      - name: Generate .env
+        run: |
+          {
+            echo "POSTGRES_USER=mfacrud"
+            echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)"
+            echo "KC_BOOTSTRAP_ADMIN_USERNAME=admin"
+            echo "KC_BOOTSTRAP_ADMIN_PASSWORD=$(openssl rand -hex 16)"
+            echo "MFACRUD_ADMIN_SVC_SECRET=$(openssl rand -hex 16)"
+          } > .env
+
+      - name: docker compose up
+        run: docker compose up -d --wait
+
+      - name: Discovery responds
+        run: |
+          curl -fsS http://localhost:8080/realms/mfacrud/.well-known/openid-configuration \
+            | grep -q '"issuer":"http://localhost:8080/realms/mfacrud"'
+
+      - name: Roles and audience in the access token
+        run: |
+          curl -fsS -X POST http://localhost:8080/realms/mfacrud/protocol/openid-connect/token \
+            -d client_id=mfacrud-postman -d grant_type=password \
+            -d username=admin@test.local -d password='Admin123!' > token.json
+          node -e '
+            const t = require("./token.json");
+            const p = JSON.parse(Buffer.from(t.access_token.split(".")[1], "base64url"));
+            const fail = m => { console.error("FAIL: " + m); process.exit(1); };
+            if (JSON.stringify(p.roles) !== JSON.stringify(["admin"])) fail("roles = " + JSON.stringify(p.roles));
+            if (![].concat(p.aud).includes("mfacrud-api")) fail("aud = " + JSON.stringify(p.aud));
+            if (p.exp - p.iat !== 900) fail("access token lifespan = " + (p.exp - p.iat));
+            console.log("ok: roles, audience and lifespan");
+          '
+
+      - name: Optional TOTP is enforced for customer2fa
+        run: |
+          code=$(node -e '
+            const c = require("crypto");
+            const buf = Buffer.alloc(8);
+            buf.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 1000 / 30)));
+            const h = c.createHmac("sha1", Buffer.from("PORTFOLIO2FASECRET20", "utf8")).update(buf).digest();
+            const o = h[h.length - 1] & 0x0f;
+            const v = ((h[o] & 0x7f) << 24) | ((h[o+1] & 0xff) << 16) | ((h[o+2] & 0xff) << 8) | (h[o+3] & 0xff);
+            console.log(String(v % 1000000).padStart(6, "0"));
+          ')
+          base="http://localhost:8080/realms/mfacrud/protocol/openid-connect/token"
+          args="-s -o /dev/null -w %{http_code} -X POST $base -d client_id=mfacrud-postman -d grant_type=password -d username=customer2fa@test.local -d password=Customer123!"
+          without=$(curl $args)
+          with=$(curl $args -d totp=$code)
+          echo "sem totp: $without | com totp: $with"
+          test "$without" != "200" || { echo "FAIL: emitiu token sem o segundo fator"; exit 1; }
+          test "$with" = "200" || { echo "FAIL: nao emitiu token com o totp correto"; exit 1; }
+
+      - name: Service account reaches the Admin API
+        run: |
+          secret=$(grep '^MFACRUD_ADMIN_SVC_SECRET=' .env | cut -d= -f2-)
+          token=$(curl -fsS -X POST http://localhost:8080/realms/mfacrud/protocol/openid-connect/token \
+            -d client_id=mfacrud-admin-svc -d grant_type=client_credentials \
+            --data-urlencode "client_secret=$secret" | node -pe 'JSON.parse(require("fs").readFileSync(0)).access_token')
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" \
+            http://localhost:8080/admin/realms/mfacrud/users?max=5)
+          echo "GET /admin/realms/mfacrud/users -> $code"
+          test "$code" = "200"
+
+      - name: Keycloak logs
+        if: failure()
+        run: docker compose logs keycloak
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
