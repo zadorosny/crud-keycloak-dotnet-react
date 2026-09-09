@@ -37,6 +37,27 @@ jobs:
           path: TestResults/
           if-no-files-found: ignore
 
+  web:
+    name: Build and lint (React)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npm run build
+
   keycloak:
     name: Realm imports from scratch
     runs-on: ubuntu-latest
