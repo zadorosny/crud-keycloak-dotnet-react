@@ -11,9 +11,14 @@ var builder = WebApplication.CreateBuilder(args);
 
 const string WebAppCors = "web-app";
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
-var connectionString = builder.Configuration.GetConnectionString("Postgres");
 
-builder.Services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
+// A connection string é resolvida quando o serviço é construído, e não aqui: assim quem hospeda a
+// API (os testes de integração, com o Postgres em container) consegue sobrescrevê-la.
+static string ConnectionString(IServiceProvider services) =>
+    services.GetRequiredService<IConfiguration>().GetConnectionString("Postgres")
+    ?? throw new InvalidOperationException("ConnectionStrings:Postgres is required.");
+
+builder.Services.AddDbContext<AppDbContext>((services, options) => options.UseNpgsql(ConnectionString(services)));
 
 builder.Services.AddKeycloakAuthentication(builder.Configuration, builder.Environment);
 builder.Services.AddKeycloakAdminApi();
@@ -24,7 +29,7 @@ builder.Services.AddCors(options => options.AddPolicy(WebAppCors, policy => poli
     .AllowAnyMethod()));
 
 builder.Services.AddHealthChecks()
-    .AddNpgSql(connectionString ?? string.Empty, name: "postgres")
+    .AddNpgSql(ConnectionString, name: "postgres")
     .AddCheck<KeycloakDiscoveryHealthCheck>("keycloak");
 builder.Services.AddHttpClient<KeycloakDiscoveryHealthCheck>(http => http.Timeout = TimeSpan.FromSeconds(5));
 
