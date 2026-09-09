@@ -15,6 +15,11 @@ TestResults/
 .env
 *.local.json
 
+# Dumps do `kc.sh export`: saem com os segredos dos clients em claro e, com
+# --users realm_file, com as credenciais OTP de dispositivos reais.
+keycloak/*.raw.json
+keycloak/realm-export.*.json
+
 # Node (web/)
 node_modules/
 dist/

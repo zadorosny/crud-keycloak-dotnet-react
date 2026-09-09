@@ -66,11 +66,16 @@ docker compose cp keycloak:/tmp/realm.json ./keycloak/realm-export.raw.json
 ```
 
 O export é uma dump completo da versão instalada: ~2 mil linhas, com IDs gerados, todos os flows
-built-in e **segredos em claro**. Antes de commitar:
+built-in e **segredos em claro**. O `.gitignore` já barra `keycloak/*.raw.json` e
+`keycloak/realm-export.*.json` justamente para o dump não ser commitado por engano. Antes de portar
+qualquer coisa dele:
 
 1. trocar o `secret` do `mfacrud-admin-svc` de volta pelo placeholder `${MFACRUD_ADMIN_SVC_SECRET}`;
 2. conferir se o secret de algum outro client confidencial vazou para o arquivo;
-3. preferir portar **só o delta** para o `realm-export.json` versionado, mantendo-o enxuto e legível,
+3. **remover as credenciais OTP que não sejam a do `customer2fa`**: com `--users realm_file` o export
+   leva junto o secret de todo autenticador cadastrado no ambiente local, inclusive os de celulares
+   de verdade. Só o `test-authenticator` de secret `PORTFOLIO2FASECRET20` pertence ao repositório;
+4. preferir portar **só o delta** para o `realm-export.json` versionado, mantendo-o enxuto e legível,
    em vez de substituir o arquivo inteiro pelo dump.
 
 ## Armadilhas já encontradas (Keycloak 26.7.3)
